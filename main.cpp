@@ -4,41 +4,95 @@
 #include <cstdio>
 #include <tchar.h>
 #include "utility.h"
+#include "opencv2/opencv.hpp"
+#include <opencv2/highgui/highgui.hpp>
+#include <opencv2/imgproc/imgproc.hpp>
+//#include "SDL.h"
 
 #include "BUF_USBCCDCamera_SDK.h"
 
+using namespace cv;
 using namespace std;
 
 
 #define CCD_FRAME_RAW 0
 #define FRAME_TYPE	CCD_FRAME_RAW
-#define CAMERA_WIDTH    1280
-#define CAMERA_HEIGHT   960
+#define WIDTH    1280
+#define HEIGHT   960
 
-unsigned char* Image;
+void* pixel_data = NULL;
+
+int c = 0, cols = 0, rows = 0;
+int time = 0;
+	cv::Mat img;
+/*
+void FrameCallBackHelper(unsigned char* BytePtr){
+cout << "here 0\n";
+	img = cv::Mat(rows, cols, CV_8UC1, &BytePtr);	
+
+cout << "here 1\n";
+//detection starts
+	if (img.empty()) 	
+	{
+cout << "here 2\n";
+		cout << "Error : Image cannot be loaded..!!" << endl;
+		cin >> cols;
+	}
+	cv::imshow("",img);
+cout << "here 3\n";
+  	cv::threshold( img, img, 150, 255,3 );
+cout << "here 4\n";
+	vector<vector<cv::Point> > contours; //create the vectors where the contours are drawn
+cin >> cols;
+cout << "here 5\n";
+	//cv::findContours(img, contours, CV_RETR_LIST, CV_CHAIN_APPROX_NONE); //find the contours of the tresholded image output to contours v<v<Points>>
+cout << "here 6\n";
+		cin >> cols;
+//find the largest contour
+	int c_idx = -1,largestContour = 0;
+	for( int i = 0; i< contours.size(); i++ )
+	{
+	if(contours[i].size() > largestContour){
+	largestContour = contours[i].size();
+	c_idx = i;
+		}
+	}
+
+	if(c_idx != -1){
+//find the center of contour
+	vector<cv::Moments> mu(contours.size());
+	mu[c_idx] = moments(contours[c_idx], false);
+	vector<cv::Point2f> mc(contours.size());
+	mc[c_idx] = cv::Point2f(mu[c_idx].m10 / mu[c_idx].m00, mu[c_idx].m01 / mu[c_idx].m00);
+	
+
+}
+}
+*/
 
 void FrameCallBack(TProcessedDataProperty* Attributes, unsigned char* BytePtr){
-for(unsigned int i=0;i<10;i++){
-cout << "works" << endl;
-		char buffer[512];
-		string time = get_date();
-		int d = 5;
-		sprintf(buffer,"yayta_%d.raw",i);
+	cols = Attributes->Column;
+	rows = Attributes->Row;
 
-		FILE* file = fopen(buffer, "wb");
-		if ( file == NULL )
-		{
-			printf( "Error: Could not open file.\n" );
-		}
-		else
-		{
 
-		fwrite( BytePtr,Attributes->Column * Attributes->Row, 1, file );
+	memcpy(pixel_data,BytePtr, WIDTH*HEIGHT);
+c++;
 
-			fclose(file);
-		}
-cin >> d;
-}
+	char buffer[512];
+	sprintf(buffer, "imgs\\comon_%d.raw", time);
+
+	FILE* file = fopen(buffer, "wb");
+	if (file == NULL)
+	{
+		printf("Error: Could not open file.\n");
+	}
+	else
+	{
+		fwrite(BytePtr, rows*cols, 1, file);
+		fclose(file);
+	}
+
+
 
 }
 
@@ -62,81 +116,78 @@ void stopCamera(){
 int _tmain(int argc, _TCHAR* argv[])
 {
 	MSG msg;
-
-
+	
 	int ret;
-	int ent;
-//init - addevice - startcameraengine - workmode - framehooker - USBHooker - framegrab
+	int d;
+	//allocate static framebuffer for the camera image
+
+	pixel_data = new unsigned char[WIDTH][HEIGHT];
+memset( pixel_data,'e', WIDTH*HEIGHT);
+
+	//init - addevice - startcameraengine - workmode - framehooker - USBHooker - framegrab
 
 
 	ret = BUFCCDUSB_InitDevice();
-	if (ret == 0){ cout << "no cameras" << endl;
-	}else{
-	cout << "success InitDevice: " << ret << endl;
-	 }	
+	if (ret != 1) { cout << "no camera\n"; return 0; }
 
-	ret = BUFCCDUSB_AddDeviceToWorkingSet( 1 );
-	if(ret == 1){cout << "success addCameratoSet: " << ret << endl;
-	}else{
-	cout << "failed, press a button to exit" << endl;
-	cin >> ent;
-	return 0;
-	}
+	ret = BUFCCDUSB_AddDeviceToWorkingSet(1);
+	cout << "Add Device to Working set: " << ret << endl;
 	ret = BUFCCDUSB_InstallUSBDeviceHooker(CameraFaultCallBack);
-	if(ret == 1){cout << "success installUSBDeviceHooker: " << ret << endl;
-	}else{
-	cout << "failed, press a button to exit" << endl;
-	cin >> ent;
-	return 0;
-	}
-cin >> ret;
+	cout << "USB install: " << ret << endl;
 
-	ret = BUFCCDUSB_SetCustomizedResolution( 1,1280, 960,0,1);
+
 
 	ret = BUFCCDUSB_StartCameraEngine(NULL, 8);
-	if(ret == 1){cout << "success startCameraEngine:  " << ret << endl;
-	}else{
-	cout << "failed, press a button to exit" << endl;
-	cin >> ent;
-	return 0;
-	}
-	ret = BUFCCDUSB_StartFrameGrab(GRAB_FRAME_FOREVER);
-//cin >> ret;
-	ret = BUFCCDUSB_InstallFrameHooker(0, FrameCallBack);
-cin >> ret;
+	cout << "Camera Engine: " << ret << endl;
+	ret = BUFCCDUSB_SetFrameTime(1, 400000);
+	//cout << "Set Frame Time: " << ret << endl;
+	ret = BUFCCDUSB_StartFrameGrab(0x8888);
+	cout << "Start Frame Grab: " << ret << endl;
 
 
 
+for(;;){
 
-
-
-/*
-	if(ret == 1){cout << "success installFrameHooker: " << ret << endl;
-	}else{
-	cout << "failed, press a button to exit" << endl;
-	cin >> ent;
-	return 0;
-	}
-*/
-
-
-
-	//ret = BUFCCDUSB_SetCameraWorkMode( 1, 0 );
-//ret = BUFCCDUSB_SetCameraWorkMode(1,1);
-
-
-
-
-
-
-	if(GetMessage(&msg,NULL,NULL,NULL))
+	time = get_date();
+	ret = BUFCCDUSB_InstallFrameHooker(1, FrameCallBack);
+	if (GetMessage(&msg, NULL, NULL, NULL))
 	{
 		TranslateMessage(&msg);
-		DispatchMessage(&msg); 
+		DispatchMessage(&msg);
 	}
 
+}
+
+
+
+
+
+
+
+
+
+
+	//imshow("",img);
+
+
+	/*
+	if ( PeekMessage( &msg, NULL, 0, 0, PM_REMOVE ) )
+	{
+	if( msg.message == WM_QUIT )
+	{
+	goto exit;
+	}
+	else if ( msg.message == WM_TIMER )
+	{
+	TranslateMessage(&msg);
+	DispatchMessage(&msg);
+	}
+	}
+	*/
 	stopCamera();
+
 	cout << "success stopCamera: " << ret << endl;
+
 	return 0;
 }
 
