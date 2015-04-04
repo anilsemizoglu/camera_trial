@@ -4,6 +4,7 @@
 #include <cstdio>
 #include <tchar.h>
 #include "utility.h"
+#include "ini_reader.h"
 #include "opencv2/opencv.hpp"
 #include <opencv2/highgui/highgui.hpp>
 #include <opencv2/imgproc/imgproc.hpp>
@@ -27,29 +28,50 @@ int c = 0, cols = 0, rows = 0;
 int tim = 0;
 char buffer[512];
 
-//threshold trackbar variables
-char* window_name = "Threshold Demo";
-char* trackbar_type = "Type: \n 0: Binary \n 1: Binary Inverted \n 2: Truncate \n 3: To Zero \n 4: To Zero Inverted";
-char* trackbar_value = "Value";
-
-int threshold_value = 0;
-int threshold_type = 3;
-
-int const max_value = 255;
-int const max_type = 4;
-int const max_BINARY_value = 255;
-
 cv::Mat img,draw,img_tres;
 
+const char* settings_file = "settings.txt";
+SYSTEMTIME Image_LocaleTime; 
+
+// settings structure for control 
+// of the camera with a text file
+struct settings_s{
+	bool show_images;
+	bool img_process;
+
+	int ExposureTime;
+	int Latitude;
+	int Longitude;
+	int Altitude;
+} Settings;
+
+// function to set the settings, IniGetBool etc. are from ini_reader.cpp
+int CameraLoadSettings( const char* filename )
+{
+    FILE* file = fopen( filename, "r" );
+        if ( file == NULL )
+                printf( "Error opening settings file.\n" );
+	Settings.show_images =  IniGetBool(  file,"show_images" , false );
+	Settings.img_process =  IniGetBool(  file,"img_process" , false );
+
+	Settings.ExposureTime = IniGetInt( file, "ExposureTime", 20 );
+	Settings.Latitude =     IniGetFloat( file,"Latitude"	, 0.0f );
+        Settings.Longitude =    IniGetFloat( file,"Longitude"	, 0.0f );
+        Settings.Altitude =     IniGetFloat( file,"Altitude"	, 0.0f );
+	return 1;
+}
+
+// image processing, data outputing and GUI is dealt with in here
 void FrameCallBack(TProcessedDataProperty* Attributes, unsigned char* BytePtr){
 	cols = Attributes->Column;
 	rows = Attributes->Row;
 
+	SYSTEMTIME localtime;
+        GetLocalTime( &localtime );
+        Image_LocalTime = localtime;
 
-//	memcpy(pixel_data,BytePtr, WIDTH*HEIGHT);
+	cout << Image_LocalTime.wHour << ":" << Image_LocalTime.wMinute << ":" <<Image_LocalTime.wSecond << endl;
 
-	tim = get_date();
-	
 	img = Mat(rows,cols,CV_8U,BytePtr);
 	if (img.empty()) 	
 	{
@@ -84,9 +106,9 @@ void FrameCallBack(TProcessedDataProperty* Attributes, unsigned char* BytePtr){
 	cv::drawContours(img, contours, c_idx, cv::Scalar(72,118,255),1.5); 	
 	cv::circle	(img, cvPoint(mc[c_idx].x, mc[c_idx].y), radius_r, CV_RGB(255, 0, 0), -1, 8, 0);
 
+	if(Settings.show_images)
 	imshow("",img);
 		}
-	cv::waitKey(0);
 	}
 
 
@@ -112,6 +134,11 @@ int _tmain(int argc, _TCHAR* argv[])
 	
 	int ret;
 	int d;
+
+	printf( "Loading camera settings from file: %s\n", settings_file );
+        CameraLoadSettings(settings_file);
+
+
 	//allocate static framebuffer for the camera image
 	pixel_data = new unsigned char[WIDTH][HEIGHT];
 	memset( pixel_data,'e', WIDTH*HEIGHT);
@@ -129,25 +156,26 @@ int _tmain(int argc, _TCHAR* argv[])
 
 	ret = BUFCCDUSB_StartCameraEngine(NULL, 8);
 	cout << "Camera Engine: " << ret << endl;
-	//ret = BUFCCDUSB_SetFrameTime(1, 400000);
-	//cout << "Set Frame Time: " << ret << endl;
 	ret = BUFCCDUSB_StartFrameGrab(0x8888);
 	cout << "Start Frame Grab: " << ret << endl;
 
+	ret = BUFCCDUSB_SetExposureTime( 1, Settings.ExposureTime);
 
 
-for(;;){
+	for(;;){
 
-	//get the frame, save it with the time stamp in FrameCallBack
+	// get the frame, save it 
+	// with the time stamp in FrameCallBack
 	ret = BUFCCDUSB_InstallFrameHooker(1, FrameCallBack);
-	//FrameCallBack needs this message loop 
-	//to keep the camera engine active
+
+	// FrameCallBack needs this message loop 
+	// to keep the camera engine active
 	if (GetMessage(&msg, NULL, NULL, NULL))
 	{
 		TranslateMessage(&msg);
 		DispatchMessage(&msg);
 	}
-}
+	}
 
 	stopCamera();
 
