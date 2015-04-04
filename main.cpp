@@ -27,17 +27,27 @@ void Threshold_Demo(int, void*);
 int c = 0, cols = 0, rows = 0;
 int tim = 0;
 char buffer[512];
-
-cv::Mat img,draw,img_tres;
+char out_file_path[512];
+bool csv_open = false;
+cv::Mat img,img_tres;
 
 const char* settings_file = "settings.txt";
-SYSTEMTIME Image_LocaleTime; 
+
+
+//GLOBAL variable for time, later used as localtime.
+SYSTEMTIME img_localtime;
+// open the csv file once per application
+ofstream out_file;
 
 // settings structure for control 
 // of the camera with a text file
 struct settings_s{
 	bool show_images;
 	bool img_process;
+	bool draw;
+
+	int ThresholdType ;
+	int ThresholdValue;
 
 	int ExposureTime;
 	int Latitude;
@@ -49,15 +59,19 @@ struct settings_s{
 int CameraLoadSettings( const char* filename )
 {
     FILE* file = fopen( filename, "r" );
-        if ( file == NULL )
-                printf( "Error opening settings file.\n" );
-	Settings.show_images =  IniGetBool(  file,"show_images" , false );
-	Settings.img_process =  IniGetBool(  file,"img_process" , false );
+        if ( file == NULL ) printf( "Error opening settings file.\n" );
 
-	Settings.ExposureTime = IniGetInt( file, "ExposureTime", 20 );
-	Settings.Latitude =     IniGetFloat( file,"Latitude"	, 0.0f );
-        Settings.Longitude =    IniGetFloat( file,"Longitude"	, 0.0f );
-        Settings.Altitude =     IniGetFloat( file,"Altitude"	, 0.0f );
+	Settings.show_images 	=  IniGetBool(  file, "show_images" , false );
+	Settings.img_process 	=  IniGetBool(  file, "img_process" , false );
+	Settings.draw 		=  IniGetBool(  file, "draw" , false );
+
+	Settings.ThresholdType 	= IniGetInt(	file, "ThresholdType" ,1);
+	Settings.ThresholdValue = IniGetInt(	file, "ThresholdValue",1);
+
+	Settings.ExposureTime 	= IniGetInt( 	file, "ExposureTime", 20 );
+	Settings.Latitude 	= IniGetFloat( 	file, "Latitude", 0.0f );
+        Settings.Longitude 	= IniGetFloat(	file, "Longitude", 0.0f );
+        Settings.Altitude 	= IniGetFloat( 	file, "Altitude", 0.0f );
 	return 1;
 }
 
@@ -66,12 +80,12 @@ void FrameCallBack(TProcessedDataProperty* Attributes, unsigned char* BytePtr){
 	cols = Attributes->Column;
 	rows = Attributes->Row;
 
+	// get the local time
 	SYSTEMTIME localtime;
         GetLocalTime( &localtime );
-        Image_LocalTime = localtime;
+        img_localtime = localtime;
 
-	cout << Image_LocalTime.wHour << ":" << Image_LocalTime.wMinute << ":" <<Image_LocalTime.wSecond << endl;
-
+	//load the image from the BytePtr
 	img = Mat(rows,cols,CV_8U,BytePtr);
 	if (img.empty()) 	
 	{
@@ -79,10 +93,15 @@ void FrameCallBack(TProcessedDataProperty* Attributes, unsigned char* BytePtr){
 	cv::waitKey();
 	}
 
+	// process the image if img_process is true
+	if(Settings.img_process){
 
-	cv::threshold( img, img_tres, 220, 255,3 );
-	vector<vector<cv::Point> > contours; //create the vectors where the contours are drawn
-	cv::findContours(img_tres, contours, CV_RETR_LIST, CV_CHAIN_APPROX_NONE); //find the contours of the tresholded image output to contours v<v<Points>>
+	//apply threshold
+	cv::threshold( img, img_tres, Settings.ThresholdValue, 255,Settings.ThresholdType );
+	//create the vectors where the contours are drawn
+	vector<vector<cv::Point> > contours; 	
+	//find the contours of the tresholded image output to contours v<v<Points>>
+	cv::findContours(img_tres, contours, CV_RETR_LIST, CV_CHAIN_APPROX_NONE); 
 
 	//find the largest contour
 	int c_idx = -1,largestContour = 0;
@@ -102,14 +121,51 @@ void FrameCallBack(TProcessedDataProperty* Attributes, unsigned char* BytePtr){
 	mc[c_idx] = cv::Point2f(mu[c_idx].m10 / mu[c_idx].m00, mu[c_idx].m01 / mu[c_idx].m00);
 
 	int radius_r = 2;
-
+	// drawing on the image
+	if(Settings.draw){
 	cv::drawContours(img, contours, c_idx, cv::Scalar(72,118,255),1.5); 	
 	cv::circle	(img, cvPoint(mc[c_idx].x, mc[c_idx].y), radius_r, CV_RGB(255, 0, 0), -1, 8, 0);
-
-	if(Settings.show_images)
-	imshow("",img);
 		}
+
+	// write in the csv file the date and the x-y coordinates
+
+	//if open write this line once
+	
+	// open the file once, csv_open checks and makes sure that one csv file per instance is opened
+	if(!csv_open)	{
+	// outputing the coordinates	
+	sprintf(out_file_path,"coordinates-%d-%d-%d_%d%d%d.csv",
+	img_localtime.wYear,
+	img_localtime.wMonth,
+	img_localtime.wDay,
+	img_localtime.wHour,
+	img_localtime.wMinute,
+	img_localtime.wSecond
+	);
+	out_file.open(out_file_path);
+	out_file <<"Year, " << "Month, " << "Day, " << "Hour, " << "Minute, "<< "Second, " << "x,        " << "y       " << endl;
+	csv_open = true;
 	}
+
+	// write the coordinates of the centroid
+	if(out_file.is_open()){
+	out_file << 
+		img_localtime.wYear  << ", " << 
+		img_localtime.wMonth << ",     " << 
+		img_localtime.wDay << ",   " << 
+		img_localtime.wHour << ",   " << 
+		img_localtime.wMinute << ",     " << 
+		img_localtime.wSecond << ",     " << mc[c_idx].x << ",  " << mc[c_idx].y << endl;
+		}else{
+		cout << "couldn't open the .csv file\n";
+		cin >> cols;
+		}
+			}//finding the largest contour
+
+		}//processing
+	if(Settings.show_images) imshow("",img);
+
+	} // frameCallBack
 
 
 
@@ -143,7 +199,6 @@ int _tmain(int argc, _TCHAR* argv[])
 	pixel_data = new unsigned char[WIDTH][HEIGHT];
 	memset( pixel_data,'e', WIDTH*HEIGHT);
 
-	//init - addevice - startcameraengine - workmode - framehooker - USBHooker - framegrab
 	ret = BUFCCDUSB_InitDevice();
 	if (ret != 1) { cout << "no camera\n"; return 0; }
 
@@ -151,15 +206,12 @@ int _tmain(int argc, _TCHAR* argv[])
 	cout << "Add Device to Working set: " << ret << endl;
 	ret = BUFCCDUSB_InstallUSBDeviceHooker(CameraFaultCallBack);
 	cout << "USB install: " << ret << endl;
-
-
-
+	ret = BUFCCDUSB_SetExposureTime( 1, Settings.ExposureTime);
 	ret = BUFCCDUSB_StartCameraEngine(NULL, 8);
 	cout << "Camera Engine: " << ret << endl;
 	ret = BUFCCDUSB_StartFrameGrab(0x8888);
 	cout << "Start Frame Grab: " << ret << endl;
 
-	ret = BUFCCDUSB_SetExposureTime( 1, Settings.ExposureTime);
 
 
 	for(;;){
