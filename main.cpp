@@ -5,10 +5,10 @@
 #include <tchar.h>
 #include "utility.h"
 #include "ini_reader.h"
+#include "sun_calc.h"
 #include "opencv2/opencv.hpp"
 #include <opencv2/highgui/highgui.hpp>
 #include <opencv2/imgproc/imgproc.hpp>
-//#include "SDL.h"
 
 #include "BUF_USBCCDCamera_SDK.h"
 
@@ -30,6 +30,7 @@ char buffer[512];
 char out_file_path[512];
 bool csv_open = false;
 cv::Mat img,img_tres;
+double ra = 0, de = 0;
 
 const char* settings_file = "settings.txt";
 
@@ -55,7 +56,7 @@ struct settings_s{
 	int Altitude;
 } Settings;
 
-// function to set the settings, IniGetBool etc. are from ini_reader.cpp
+// function to load the settings, IniGetBool etc. are from ini_reader.cpp
 int CameraLoadSettings( const char* filename )
 {
     FILE* file = fopen( filename, "r" );
@@ -84,6 +85,7 @@ void FrameCallBack(TProcessedDataProperty* Attributes, unsigned char* BytePtr){
 	SYSTEMTIME localtime;
         GetLocalTime( &localtime );
         img_localtime = localtime;
+
 
 	//load the image from the BytePtr
 	img = Mat(rows,cols,CV_8U,BytePtr);
@@ -127,13 +129,13 @@ void FrameCallBack(TProcessedDataProperty* Attributes, unsigned char* BytePtr){
 	cv::circle	(img, cvPoint(mc[c_idx].x, mc[c_idx].y), radius_r, CV_RGB(255, 0, 0), -1, 8, 0);
 		}
 
+
 	// write in the csv file the date and the x-y coordinates
 
 	//if open write this line once
 	
 	// open the file once, csv_open checks and makes sure that one csv file per instance is opened
 	if(!csv_open)	{
-	// outputing the coordinates	
 	sprintf(out_file_path,"coordinates-%d-%d-%d_%d%d%d.csv",
 	img_localtime.wYear,
 	img_localtime.wMonth,
@@ -141,21 +143,43 @@ void FrameCallBack(TProcessedDataProperty* Attributes, unsigned char* BytePtr){
 	img_localtime.wHour,
 	img_localtime.wMinute,
 	img_localtime.wSecond
-	);
+		);
 	out_file.open(out_file_path);
-	out_file <<"Year, " << "Month, " << "Day, " << "Hour, " << "Minute, "<< "Second, " << "x,        " << "y       " << endl;
+	out_file <<"Year, " << "Month, " << "Day, " << "Hour, " << "Minute, "<< "Second, " << "x,        " << "y         " << "RA,       "<< "DEC,   "<<  endl;
 	csv_open = true;
 	}
 
 	// write the coordinates of the centroid
 	if(out_file.is_open()){
+	double eclip_long = 
+	ecliptic_longitude(
+	img_localtime.wYear,
+	img_localtime.wMonth,
+	img_localtime.wDay,
+	img_localtime.wHour,
+	img_localtime.wMinute,
+	img_localtime.wSecond
+		);
+
+	ra = sun_ra(eclip_long);
+	de = sun_de(eclip_long);
+
+//cout << ra << "  " << de << endl;  
+
+
+
+
 	out_file << 
-		img_localtime.wYear  << ", " << 
-		img_localtime.wMonth << ",     " << 
-		img_localtime.wDay << ",   " << 
-		img_localtime.wHour << ",   " << 
-		img_localtime.wMinute << ",     " << 
-		img_localtime.wSecond << ",     " << mc[c_idx].x << ",  " << mc[c_idx].y << endl;
+	img_localtime.wYear  << ", " << 
+	img_localtime.wMonth << ",     " << 
+	img_localtime.wDay << ",   " << 
+	img_localtime.wHour << ",   " << 
+	img_localtime.wMinute << ",     " << 
+	img_localtime.wSecond << ",     " << 
+	mc[c_idx].x << ",  " << 
+	mc[c_idx].y << ",  " <<	
+	ra << ",  " <<
+	de << endl;
 		}else{
 		cout << "couldn't open the .csv file\n";
 		cin >> cols;
